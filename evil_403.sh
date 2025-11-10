@@ -18,7 +18,7 @@ cat << "EOF"
 : :: ::      :      :    : :: : :                  :::    : : :  :    : : :   
                                                                               
 
-              EVIL-403
+              
 EOF
 
 echo "Author: Samael_0x4"
