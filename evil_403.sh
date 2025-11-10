@@ -1,7 +1,28 @@
 #!/usr/bin/env bash
-# evil_403.sh — Stealth-grade 403 recon → bypass → validation pipeline
-# Author: Farhan
-# Goal: High-signal, low-noise, reproducible, evidence-driven automation.
+# evil_403.sh — Stealth-grade 403 bypass automation wrapper
+
+# ----------------------------
+# Banner
+# ----------------------------
+cat << "EOF"
+                                                                              
+@@@@@@@@  @@@  @@@  @@@  @@@                       @@@    @@@@@@@@   @@@@@@   
+@@@@@@@@  @@@  @@@  @@@  @@@                      @@@@   @@@@@@@@@@  @@@@@@@  
+@@!       @@!  @@@  @@!  @@!                     @@!@!   @@!   @@@@      @@@  
+!@!       !@!  @!@  !@!  !@!                    !@!!@!   !@!  @!@!@      @!@  
+@!!!:!    @!@  !@!  !!@  @!!       @!@!@!@!@   @!! @!!   @!@ @! !@!  @!@!!@   
+!!!!!:    !@!  !!!  !!!  !!!       !!!@!@!!!  !!!  !@!   !@!!!  !!!  !!@!@!   
+!!:       :!:  !!:  !!:  !!:                  :!!:!:!!:  !!:!   !!!      !!:  
+:!:        ::!!:!   :!:   :!:                 !:::!!:::  :!:    !:!      :!:  
+ :: ::::    ::::     ::   :: ::::                  :::   ::::::: ::  :: ::::  
+: :: ::      :      :    : :: : :                  :::    : : :  :    : : :   
+                                                                              
+
+              EVIL-403
+EOF
+
+echo "Author: Samael_0x4"
+echo
 
 set -euo pipefail
 
