@@ -39,8 +39,6 @@ chmod +x evil_403.sh
  ├── payloads/
  │    ├── 403_url_payloads.txt
  │    └── 403_header_payloads.txt
- ├── .gitignore
- └── README.md
 ```
 
 ## Outputs 
