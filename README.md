@@ -4,7 +4,7 @@
 
 ---
 
-## ✨ Features
+##  Features
 - 🔎 **Stealth Recon**: runs `feroxbuster`, `dirsearch`, `ffuf` with low-noise settings to discover 403 endpoints.
 - 🛠 **Automated Bypass**: fuzzes with advanced URL + header payloads, integrates with tools like `bypass-403`, `4-ZERO-3`, `nomore403`.
 - ⚡ **Validation**: confirms bypasses with `curl`, saves headers + response bodies for evidence.
@@ -13,12 +13,12 @@
 
 ---
 
-## Installing 
+## Install
 ```
 chmod +x evil_403.sh
 ```
 
-## ⚙️ Usage
+## Usage
 ```bash
 # Basic run
 bash evil_403.sh -u https://target.com
