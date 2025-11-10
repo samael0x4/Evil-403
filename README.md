@@ -1,4 +1,4 @@
-# EVIL-403 
+# EVIL-403  |  Forbidden Access Destroyer
 **Stealth-grade 403 bypass automation wrapper**  
 **Designed for bug bounty hunters and security researchers who need clean, modular, and reproducible workflows for bypassing `403 Forbidden` restrictions.**
 
