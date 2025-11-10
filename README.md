@@ -13,26 +13,25 @@
 
 ---
 
-## Install
+## Quick Install & Run :
 ```
+git clone https://github.com/<your-username>/EVIL-403.git
+cd EVIL-403
 chmod +x evil_403.sh
-```
 
-## Usage
-```bash
-# Basic run
+# Run basic usage
 ./evil_403.sh -u https://target.com
 
-# With proxy
+# Run with proxy
 ./evil_403.sh -u https://target.com -p http://127.0.0.1:8080
 
-# Custom scope + payloads
-./evil_403.sh -u https://target.com \
+# Full arsenal run (payloads + scope + stealth tuning)
+./evil_403.sh -u https://target.com -p http://127.0.0.1:8080 \
   --payloads-url ./payloads/403_master_payloads.txt \
   --payloads-header ./payloads/403_header_payloads.txt \
-  --scope admin,login,dashboard,api
+  --scope admin,login,dashboard,api,internal \
+  --threads-recon 15 --threads-fuzz 8 --rate 0.2 --timeout 10
 ```
-
 
 ## 📂 Folder Structure
 ```evil-403/
