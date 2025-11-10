@@ -21,13 +21,13 @@ chmod +x evil_403.sh
 ## Usage
 ```bash
 # Basic run
-bash evil_403.sh -u https://target.com
+./evil_403.sh -u https://target.com
 
 # With proxy
-bash evil_403.sh -u https://target.com -p http://127.0.0.1:8080
+./evil_403.sh -u https://target.com -p http://127.0.0.1:8080
 
 # Custom scope + payloads
-bash evil_403.sh -u https://target.com \
+./evil_403.sh -u https://target.com \
   --payloads-url ./payloads/403_master_payloads.txt \
   --payloads-header ./payloads/403_header_payloads.txt \
   --scope admin,login,dashboard,api
