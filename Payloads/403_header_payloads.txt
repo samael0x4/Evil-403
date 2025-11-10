@@ -1,1 +1,23 @@
-a
+User-Agent: Mozilla/5.0
+Referer: https://target.com/
+Referrer: https://target.com/admin/
+Refferer: https://target.com/
+X-Forwarded-For: 127.0.0.1
+X-Real-IP: 127.0.0.1
+Client-IP: 127.0.0.1
+X-Originating-IP: 127.0.0.1
+X-Remote-Addr: 127.0.0.1
+X-Remote-IP: 127.0.0.1
+X-Custom-IP-Authorization: 127.0.0.1
+Host: localhost
+X-Host: 127.0.0.1
+X-Http-Host-Override: 127.0.0.1
+X-Forwarded-Port: 80
+X-Forwarded-Port: 443
+X-Forwarded-Port: 8080
+X-Forwarded-Port: 8443
+X-Forwarded-Scheme: http
+X-Forwarded-Scheme: https
+X-Forwarded-Server: 127.0.0.1
+X-Rewrite-Url: /admin
+Request-Uri: /admin
