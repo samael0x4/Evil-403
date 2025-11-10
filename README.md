@@ -37,7 +37,6 @@ chmod +x evil_403.sh
 ```evil-403/
  ├── evil_403.sh              # main automation wrapper
  ├── payloads/
- │    ├── 403_master_payloads.txt
  │    ├── 403_url_payloads.txt
  │    └── 403_header_payloads.txt
  ├── .gitignore
