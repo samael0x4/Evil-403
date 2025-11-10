@@ -24,245 +24,256 @@ EOF
 echo "Author: Samael_0x4"
 echo
 
-set -euo pipefail
 
-# ----------------------------
-# Configuration (edit as needed)
-# ----------------------------
-TARGET=""
-WORDLIST_DIR="${HOME}/wordlists/SecLists/Discovery/Web-Content"
-URL_PAYLOADS="./payloads/403_master_payloads.txt"   # URL + path tricks
-HEADER_PAYLOADS="./payloads/403_header_payloads.txt"
-OUTDIR="./evil403_out"
-THREADS_RECON=20
-THREADS_FUZZ=10
-RATE_LIMIT="0.15"         # seconds per request to avoid WAF rate triggers
-RANDOM_AGENT=1
-TIMEOUT=12
-RETRY=1
-DELAY_JITTER="0.08"       # extra jitter added randomly per request
-PROXY=""                  # e.g., http://127.0.0.1:8080 (empty for direct)
-TLS_INSECURE=1            # -k for curl/ffuf to reduce TLS noise
-SCOPE_PATHS=("admin" "login" "dashboard" "config" ".htaccess" "wp-admin" "api" "internal")
+# Usage example:
+# ./evil_403.sh -u https://target.com --payload-path 403_path_payloads.txt --payload-header 403_header_payloads.txt --stealth --ua-rotate --delay 0.3
 
-# Optional tool paths (leave default if on PATH)
-FEROXBUSTER_BIN="feroxbuster"
-DIRSEARCH_BIN="dirsearch/dirsearch.py"
-FFUF_BIN="ffuf"
-GOBUSTER_BIN="gobuster"
-BYPASS403_BIN="bypass-403"
-FOURZERO3_BIN="4zero3"
-NOMORE403_BIN="nomore403"
+set -o errexit -o nounset -o pipefail
 
-# ----------------------------
-# Usage
-# ----------------------------
+### Colors
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
+
+### Defaults
+USER_AGENT="evil-403/2.0 (+https://github.com/samael0x4/Evil-403)"
+CURL_TIMEOUT=15
+STEALTH=0
+DELAY=0.2        # base delay (seconds) between requests
+UA_ROTATE=0
+
+### minimal UA pool for rotation (used when --ua-rotate)
+UA_POOL=(
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15"
+  "curl/7.85.0"
+  "Wget/1.21.1 (linux-gnu)"
+)
+
+### required commands
+REQUIRED=(curl mktemp sha256sum awk sed printf sleep date head)
+missing=()
+for cmd in "${REQUIRED[@]}"; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    missing+=("$cmd")
+  fi
+done
+if (( ${#missing[@]} )); then
+  printf '%b\n' "${RED}[ERROR] Missing commands:${NC} ${missing[*]}" >&2
+  exit 2
+fi
+
+### Helpers
 usage() {
   cat <<EOF
-Usage: $0 -u https://target.com [options]
+Usage: $0 -u <url> --payload-path <path_file> --payload-header <header_file> [options]
 
 Options:
-  -u, --url           Target base URL (required)
-  -p, --proxy         Proxy (e.g., http://127.0.0.1:8080)
-  -o, --outdir        Output directory (default: ${OUTDIR})
-  --threads-recon     Recon threads (default: ${THREADS_RECON})
-  --threads-fuzz      Fuzz threads (default: ${THREADS_FUZZ})
-  --rate              Rate limit seconds (default: ${RATE_LIMIT})
-  --timeout           Timeout seconds (default: ${TIMEOUT})
-  --no-random-agent   Disable random User-Agent rotation
-  --strict-tls        Disable -k (TLS strict)
-  --payloads-url      Path to URL payloads (default: ${URL_PAYLOADS})
-  --payloads-header   Path to header payloads (default: ${HEADER_PAYLOADS})
-  --scope             Comma-separated hot paths (default: $(IFS=,; echo "${SCOPE_PATHS[*]}"))
-
+  -u, --url <url>                  Target URL (scheme optional; https:// will be prepended if missing)
+  --payload-path <file>            Path payloads file (one path per line, e.g. /admin)
+  --payload-header <file>          Header payloads file (one header per line, exact "Header: value")
+  -s, --stealth                     Enable stealth mode (slower, jittered requests)
+  --delay <seconds>                Base delay between requests (default: ${DELAY})
+  --ua-rotate                      Rotate User-Agent per request (uses small UA pool)
+  -h, --help                       Show this help
 Example:
-  $0 -u https://example.com --proxy http://127.0.0.1:8080
+  $0 -u https://target.com --payload-path 403_path_payloads.txt --payload-header 403_header_payloads.txt --stealth --ua-rotate
 EOF
   exit 1
 }
 
-# ----------------------------
-# Arg parsing
-# ----------------------------
-while [[ $# -gt 0 ]]; do
+normalize_url() {
+  local u="$1"
+  if [[ "$u" =~ ^(file|ftp|data): ]]; then
+    echo "Invalid scheme" >&2; return 1
+  fi
+  if ! [[ "$u" =~ ^https?:// ]]; then
+    u="https://$u"
+  fi
+  # remove trailing slash (keep root as e.g. https://example.com)
+  u="${u%/}"
+  printf '%s' "$u"
+}
+
+rand_sleep() {
+  # base delay in $DELAY, plus jitter when STEALTH=1
+  local base="$1"
+  if [[ "$STEALTH" -eq 1 ]]; then
+    # jitter between 0 and base*1.5
+    local jitter
+    jitter=$(awk "BEGIN{printf \"%.3f\", ($RANDOM/32768) * ($base * 1.5)}")
+    sleep_time=$(awk "BEGIN{printf \"%.3f\", $base + $jitter}")
+  else
+    sleep_time="$base"
+  fi
+  # use sleep with fractional seconds
+  sleep "$sleep_time"
+}
+
+choose_ua() {
+  if [[ "$UA_ROTATE" -eq 1 ]]; then
+    local idx=$((RANDOM % ${#UA_POOL[@]}))
+    printf '%s' "${UA_POOL[$idx]}"
+  else
+    printf '%s' "$USER_AGENT"
+  fi
+}
+
+http_request() {
+  # args: method url out_prefix header1 header2 ...
+  local method="$1"; shift
+  local url="$1"; shift
+  local outpref="$1"; shift
+  local headers=("$@")
+  local hdrfile="${outpref}.hdr"; local bodyfile="${outpref}.body"
+
+  local ua
+  ua="$(choose_ua)"
+
+  # construct curl args safely
+  local -a CURL=(--silent --show-error --location --max-time "$CURL_TIMEOUT" -A "$ua" -X "$method" --dump-header "$hdrfile" --write-out "%{http_code}" -o "$bodyfile" "$url")
+  for h in "${headers[@]}"; do
+    # header lines might be quoted in file; trim quotes if present
+    h=$(printf '%s' "$h" | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/")
+    CURL+=( -H "$h" )
+  done
+
+  curl "${CURL[@]}"
+}
+
+sha256_of_file() {
+  local f="$1"
+  if [[ -f "$f" ]]; then
+    sha256sum "$f" | awk '{print $1}'
+  else
+    printf ''
+  fi
+}
+
+print_info(){ printf '%b\n' "${BLUE}[INFO]${NC} $*"; }
+print_warn(){ printf '%b\n' "${YELLOW}[WARN]${NC} $*"; }
+print_err(){ printf '%b\n' "${RED}[ERROR]${NC} $*"; }
+print_403(){ printf '%b\n' "${RED}[403]${NC} $*"; }
+print_bypass(){ printf '%b\n' "${GREEN}[BYPASS]${NC} $*"; }
+
+### CLI parse (support long options)
+if (( $# == 0 )); then usage; fi
+# temp holders
+TARGET_RAW=""
+PATH_FILE=""
+HEADER_FILE=""
+while (( $# )); do
   case "$1" in
-    -u|--url) TARGET="$2"; shift 2 ;;
-    -p|--proxy) PROXY="$2"; shift 2 ;;
-    -o|--outdir) OUTDIR="$2"; shift 2 ;;
-    --threads-recon) THREADS_RECON="$2"; shift 2 ;;
-    --threads-fuzz) THREADS_FUZZ="$2"; shift 2 ;;
-    --rate) RATE_LIMIT="$2"; shift 2 ;;
-    --timeout) TIMEOUT="$2"; shift 2 ;;
-    --no-random-agent) RANDOM_AGENT=0; shift ;;
-    --strict-tls) TLS_INSECURE=0; shift ;;
-    --payloads-url) URL_PAYLOADS="$2"; shift 2 ;;
-    --payloads-header) HEADER_PAYLOADS="$2"; shift 2 ;;
-    --scope) IFS=',' read -r -a SCOPE_PATHS <<< "$2"; shift 2 ;;
-    -h|--help) usage ;;
-    *) echo "Unknown option: $1"; usage ;;
+    -u|--url) TARGET_RAW="$2"; shift 2;;
+    --payload-path) PATH_FILE="$2"; shift 2;;
+    --payload-header) HEADER_FILE="$2"; shift 2;;
+    -s|--stealth) STEALTH=1; shift;;
+    --delay) DELAY="$2"; shift 2;;
+    --ua-rotate) UA_ROTATE=1; shift;;
+    -h|--help) usage;;
+    *) printf '%b\n' "${YELLOW}[WARN] Unknown option: $1${NC}"; shift;;
   esac
 done
 
-[[ -z "$TARGET" ]] && usage
+if [[ -z "$TARGET_RAW" || -z "$PATH_FILE" || -z "$HEADER_FILE" ]]; then
+  print_err "Missing required args."
+  usage
+fi
 
-# ----------------------------
-# Prep: folders, UA pool, helpers
-# ----------------------------
-mkdir -p "${OUTDIR}"/{recon,bypass,validation,evidence/responses,payloads,tmp}
+if [[ ! -f "$PATH_FILE" ]]; then print_err "Path payload file not found: $PATH_FILE"; exit 2; fi
+if [[ ! -f "$HEADER_FILE" ]]; then print_err "Header payload file not found: $HEADER_FILE"; exit 2; fi
 
-# Seed UA pool for stealth rotation
-UA_POOL=(
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/17 Safari/605.1.15"
-  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/119 Safari/537.36"
-  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1"
-)
-rand_ua() { echo "${UA_POOL[$((RANDOM % ${#UA_POOL[@]}))]}"; }
+TARGET="$(normalize_url "$TARGET_RAW")" || { print_err "Bad URL"; exit 1; }
+print_info "Target: $TARGET"
+print_info "Payloads: paths=$PATH_FILE headers=$HEADER_FILE"
+print_info "Stealth: $STEALTH  UA-rotate: $UA_ROTATE  base-delay: $DELAY s"
 
-JITTER() {
-  # sleep for rate limit plus random jitter
-  awk -v base="${RATE_LIMIT}" -v j="${DELAY_JITTER}" 'BEGIN{srand(); d=base+(rand()*j); printf("%.3f\n",d)}'
-}
+### prep tmpdir
+TMPDIR="$(mktemp -d "${PWD}/evil403.XXXX")"
+cleanup() { local rc=$?; print_info "Cleaning up (kept evidence at $TMPDIR if you used --no-clean)"; exit $rc; }
+trap cleanup EXIT
 
-CURL_COMMON=(-sS --max-time "${TIMEOUT}")
-[[ "${TLS_INSECURE}" -eq 1 ]] && CURL_COMMON+=(-k)
-[[ -n "${PROXY}" ]] && CURL_COMMON+=(--proxy "${PROXY}")
+# capture baseline of the root (non-path) to compare bodies
+print_info "Capturing baseline content for $TARGET ..."
+basepref="${TMPDIR}/base_$(date +%s%N)"
+status_base="$(http_request GET "$TARGET" "$basepref")" || status_base="000"
+base_body="${basepref}.body"
+BASE_HASH="$(sha256_of_file "$base_body")"
+print_info "Baseline status: $status_base  sha256:$BASE_HASH"
 
-FFUF_COMMON=(-t "${THREADS_FUZZ}" -timeout "${TIMEOUT}" -rate "$(awk -v r="${RATE_LIMIT}" 'BEGIN{print 1/r}')" -ac)
-[[ "${TLS_INSECURE}" -eq 1 ]] && FFUF_COMMON+=(-k)
-[[ -n "${PROXY}" ]] && FFUF_COMMON+=(-x "${PROXY}")
+found_any_bypass=0
 
-# ----------------------------
-# Step 1: Recon (stealth-mode)
-# ----------------------------
-echo "[*] Recon (stealth) on ${TARGET}"
+# read payload files into arrays (trim blank lines and comments)
+mapfile -t PATHS < <(sed -e 's/#.*//' -e '/^\s*$/d' "$PATH_FILE")
+mapfile -t HEADERS < <(sed -e 's/#.*//' -e '/^\s*$/d' "$HEADER_FILE")
 
-# Scope preseed: quick hits to reduce noise and focus on sensitive areas
-printf "%s\n" "${SCOPE_PATHS[@]}" | sed 's#^#'"${TARGET%/}"'/#' \
-  > "${OUTDIR}/recon/scope_seeds.txt"
+# main loop: for each path -> test path itself, then for each header perform request
+for p in "${PATHS[@]}"; do
+  # ensure path starts with /
+  if [[ "$p" != /* ]]; then p="/$p"; fi
+  candidate="${TARGET}${p}"
+  print_info "Probing path: $candidate"
 
-# ffuf light scan (status filter 401/403 only)
-${FFUF_BIN} -u "${TARGET%/}/FUZZ" -w "${WORDLIST_DIR}/common.txt" \
-  -mc 401,403 -p "${RATE_LIMIT}" "${FFUF_COMMON[@]}" \
-  -H "User-Agent: $(rand_ua)" \
-  -o "${OUTDIR}/recon/ffuf_403.json" || true
+  # first: simple GET without special headers
+  outp="${TMPDIR}/attempt_$(date +%s%N)"
+  status="$(http_request GET "$candidate" "$outp")" || status="000"
+  body="${outp}.body"
+  hdr="${outp}.hdr"
+  hash="$(sha256_of_file "$body")"
 
-# feroxbuster gentle scan with auto-tune and silent mode
-${FEROXBUSTER_BIN} -u "${TARGET}" \
-  -w "${WORDLIST_DIR}/raft-medium-directories.txt" \
-  --status-codes 401,403 --random-agent --auto-tune --silent \
-  -t "${THREADS_RECON}" -x php,asp,aspx,jsp,html,txt,conf,log,bak \
-  -o "${OUTDIR}/recon/ferox_403.txt" || true
+  if [[ "$status" == "403" ]]; then
+    print_403 "$candidate -> 403"
+  else
+    # if not 403 and body differ from baseline, mark as accessible
+    if [[ -n "$BASE_HASH" && "$hash" != "$BASE_HASH" ]]; then
+      print_bypass "$candidate -> $status (body differs from baseline)"
+      cp "$body" "${TMPDIR}/evidence_$(echo "$candidate" | sed 's/[^a-zA-Z0-9]/_/g')_body"
+      cp "$hdr"  "${TMPDIR}/evidence_$(echo "$candidate" | sed 's/[^a-zA-Z0-9]/_/g')_hdr"
+      found_any_bypass=1
+    else
+      print_info "$candidate -> $status"
+    fi
+  fi
 
-# dirsearch constrained (headers + rate limit)
-python3 "${DIRSEARCH_BIN}" -u "${TARGET}" \
-  -e php,asp,aspx,jsp,html,txt,conf,log,bak \
-  -w "${WORDLIST_DIR}/raft-medium-files.txt" \
-  --include-status=401,403 --rate-limit "$(printf "%.0f" "$(awk -v r="${RATE_LIMIT}" 'BEGIN{print r*1000}')" )" \
-  --random-agent --threads="${THREADS_RECON}" \
-  -o "${OUTDIR}/recon/dirsearch_403.txt" || true
+  # stealth delay between path baseline and header permutations
+  rand_sleep "$DELAY"
 
-# Merge + dedupe recon
-cat "${OUTDIR}/recon/"* 2>/dev/null | grep -Eo '(https?://[^[:space:]]+)' \
-  | sed 's|[[:space:]]||g' | sort -u > "${OUTDIR}/recon/403_targets_raw.txt"
+  # Now iterate through *all* header payloads for this path
+  for hdr_line in "${HEADERS[@]}"; do
+    # header file lines should be full header lines: Header: value
+    outp="${TMPDIR}/attempt_hdr_$(date +%s%N)"
+    status_h="$(http_request GET "$candidate" "$outp" "$hdr_line")" || status_h="000"
+    body_h="${outp}.body"; hdr_h="${outp}.hdr"; hash_h="$(sha256_of_file "$body_h")"
 
-# Seed scope targets
-cat "${OUTDIR}/recon/scope_seeds.txt" >> "${OUTDIR}/recon/403_targets_raw.txt"
-sort -u "${OUTDIR}/recon/403_targets_raw.txt" > "${OUTDIR}/recon/403_targets.txt"
+    # consider bypass if status != 403 OR body hash differs from baseline
+    if [[ "$status_h" != "403" || ( -n "$BASE_HASH" && "$hash_h" != "$BASE_HASH" ) ]]; then
+      # sanitize header for filename
+      safehdr="$(echo "$hdr_line" | sed 's/[^a-zA-Z0-9]/_/g')"
+      print_bypass "$candidate + header[$hdr_line] -> $status_h"
+      cp "$body_h" "${TMPDIR}/evidence_$(echo "$candidate" | sed 's/[^a-zA-Z0-9]/_/g')_${safehdr}_body"
+      cp "$hdr_h"  "${TMPDIR}/evidence_$(echo "$candidate" | sed 's/[^a-zA-Z0-9]/_/g')_${safehdr}_hdr"
+      found_any_bypass=1
+    else
+      print_info "$candidate + header[$hdr_line] -> $status_h (no bypass)"
+    fi
 
-echo "[+] Recon complete. Targets: $(wc -l < "${OUTDIR}/recon/403_targets.txt")"
+    # stealth delay between header permutations
+    rand_sleep "$DELAY"
+  done
 
-# ----------------------------
-# Step 2: Bypass attempts (URL + header fuzzing)
-# ----------------------------
-echo "[*] Bypass attempts (layered, low-noise)"
-
-# 2a. URL path fuzzing against each target
-while read -r endp; do
-  [[ -z "$endp" ]] && continue
-  UA="$(rand_ua)"
-  # ffuf URL payloads
-  ${FFUF_BIN} -u "${endp%/}/FUZZ" -w "${URL_PAYLOADS}" -mc 200 \
-    -H "User-Agent: ${UA}" -p "$(JITTER)" "${FFUF_COMMON[@]}" \
-    -o "${OUTDIR}/bypass/ffuf_url_$(echo "$endp" | md5sum | cut -c1-8).json" || true
-  sleep "$(JITTER)"
-done < "${OUTDIR}/recon/403_targets.txt"
-
-# 2b. Header fuzzing (single endpoint focus: hot paths prioritized)
-# Use FFUF's header injection alias
-for hot in "${SCOPE_PATHS[@]}"; do
-  endpoint="${TARGET%/}/${hot}"
-  ${FFUF_BIN} -u "${endpoint}" -w "${HEADER_PAYLOADS}":HF -mc 200 \
-    -H "HF" -H "User-Agent: $(rand_ua)" -p "$(JITTER)" "${FFUF_COMMON[@]}" \
-    -o "${OUTDIR}/bypass/ffuf_hdr_${hot}.json" || true
-  sleep "$(JITTER)"
 done
 
-# 2c. External helper tools (quiet mode if supported)
-# Note: Runs only on hot paths to reduce noise
-if command -v "${BYPASS403_BIN}" >/dev/null 2>&1; then
-  for hot in "${SCOPE_PATHS[@]}"; do
-    ${BYPASS403_BIN} "${TARGET}" "/${hot}" \
-      | sed 's/\r$//' >> "${OUTDIR}/bypass/bypass403_results.txt" || true
-    sleep "$(JITTER)"
-  done
+# Final summary
+if (( found_any_bypass )); then
+  print_bypass "One or more bypasses detected. Evidence saved in: $TMPDIR"
+  ls -1 "$TMPDIR" || true
+  exit 0
+else
+  print_info "No bypass discovered with provided payloads. Evidence saved in: $TMPDIR"
+  ls -1 "$TMPDIR" || true
+  exit 3
 fi
 
-if command -v "${FOURZERO3_BIN}" >/dev/null 2>&1; then
-  for hot in "${SCOPE_PATHS[@]}"; do
-    ${FOURZERO3_BIN} -u "${TARGET%/}/${hot}" --exploit \
-      | sed 's/\r$//' >> "${OUTDIR}/bypass/4zero3_results.txt" || true
-    sleep "$(JITTER)"
-  done
-fi
 
-if command -v "${NOMORE403_BIN}" >/dev/null 2>&1; then
-  ${NOMORE403_BIN} -u "${TARGET}" \
-    | sed 's/\r$//' >> "${OUTDIR}/bypass/nomore403_results.txt" || true
-fi
-
-# ----------------------------
-# Step 3: Validation & evidence
-# ----------------------------
-echo "[*] Validation & evidence capture"
-
-# Collect candidate URLs from bypass outputs and ffuf JSONs
-grep -Eo '(https?://[^[:space:]]+)' "${OUTDIR}/bypass/"* 2>/dev/null \
-  | sort -u > "${OUTDIR}/validation/candidates.txt" || true
-
-# Add reconstructed FUZZ hits from ffuf JSONs (basic grep for “results” URLs)
-grep -Eo '"url":"https?://[^"]+"' "${OUTDIR}/bypass/"*.json 2>/dev/null \
-  | sed 's/"url":"//;s/"$//' >> "${OUTDIR}/validation/candidates.txt" || true
-
-sort -u "${OUTDIR}/validation/candidates.txt" -o "${OUTDIR}/validation/candidates.txt"
-
-# Validate each candidate with curl: status, headers, and body fingerprint
-> "${OUTDIR}/validation/success.txt"
-while read -r u; do
-  [[ -z "$u" ]] && continue
-  UA="$(rand_ua)"
-  code=$(curl "${CURL_COMMON[@]}" -A "${UA}" -o /dev/null -w "%{http_code}" "$u" || echo "000")
-  size=$(curl "${CURL_COMMON[@]}" -A "${UA}" -o /dev/null -w "%{size_download}" "$u" || echo "0")
-  if [[ "$code" == "200" || "$code" == "204" || "$code" == "206" ]]; then
-    echo "OK | $code | $size | $u" | tee -a "${OUTDIR}/validation/success.txt"
-    # Save headers
-    curl "${CURL_COMMON[@]}" -A "${UA}" -D - "$u" -o /dev/null \
-      > "${OUTDIR}/evidence/headers_$(echo "$u" | md5sum | cut -c1-10).txt" || true
-    # Save body (bounded) for fingerprint
-    curl "${CURL_COMMON[@]}" -A "${UA}" "$u" \
-      | head -c 150000 \
-      > "${OUTDIR}/evidence/responses/body_$(echo "$u" | md5sum | cut -c1-10).html" || true
-  fi
-  sleep "$(JITTER)"
-done < "${OUTDIR}/validation/candidates.txt"
-
-echo "[+] Validation complete. Success count: $(wc -l < "${OUTDIR}/validation/success.txt" 2>/dev/null || echo 0)"
-
-# ----------------------------
-# Summary
-# ----------------------------
-echo "Output:
-  - Recon targets:      ${OUTDIR}/recon/403_targets.txt
   - Bypass results:     ${OUTDIR}/bypass/
   - Validation success: ${OUTDIR}/validation/success.txt
   - Evidence headers:   ${OUTDIR}/evidence/headers_*.txt
