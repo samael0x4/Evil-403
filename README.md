@@ -1,7 +1,6 @@
-# evil_403.sh 🚀
-
+# EVIL-403 
 **Stealth-grade 403 bypass automation wrapper**  
-Designed for bug bounty hunters and security researchers who need clean, modular, and reproducible workflows for bypassing `403 Forbidden` restrictions.
+**Designed for bug bounty hunters and security researchers who need clean, modular, and reproducible workflows for bypassing `403 Forbidden` restrictions.**
 
 ---
 
@@ -14,24 +13,12 @@ Designed for bug bounty hunters and security researchers who need clean, modular
 
 ---
 
-## 📂 Folder Structure
-evil-403/
- ├── evil_403.sh              # main automation wrapper
- ├── payloads/
- │    ├── 403_master_payloads.txt
- │    ├── 403_url_payloads.txt
- │    └── 403_header_payloads.txt
- ├── .gitignore
- └── README.md
-
 ## Installing 
 ```
 chmod +x evil_403.sh
-
 ```
 
 ## ⚙️ Usage
-
 ```bash
 # Basic run
 bash evil_403.sh -u https://target.com
@@ -45,14 +32,28 @@ bash evil_403.sh -u https://target.com \
   --payloads-header ./payloads/403_header_payloads.txt \
   --scope admin,login,dashboard,api
 ```
-Outputs are saved in evil403_out/:
+
+
+## 📂 Folder Structure
+```evil-403/
+ ├── evil_403.sh              # main automation wrapper
+ ├── payloads/
+ │    ├── 403_master_payloads.txt
+ │    ├── 403_url_payloads.txt
+ │    └── 403_header_payloads.txt
+ ├── .gitignore
+ └── README.md
+```
+
+## Outputs 
+**saved in evil403_out/**
 - Recon results → recon/
 - Bypass attempts → bypass/
 - Validation successes → validation/success.txt
 - Evidence → evidence/headers_*.txt, responses/body_*.html
 
 
-🔒 Disclaimer
+## 🔒 Disclaimer
 This tool is for educational and authorized security testing only.
 Do not use against systems without explicit permission.
 
