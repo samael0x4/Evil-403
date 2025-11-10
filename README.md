@@ -15,7 +15,7 @@
 
 ## Quick Install & Run :
 ```
-git clone https://github.com/<your-username>/EVIL-403.git
+git clone https://github.com/samael0x4/EVIL-403.git
 cd EVIL-403
 chmod +x evil_403.sh
 
