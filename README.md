@@ -19,34 +19,22 @@ git clone https://github.com/samael0x4/EVIL-403.git
 cd EVIL-403
 chmod +x evil_403.sh
 
-# Run basic usage
-./evil_403.sh -u https://target.com
+./evil_403.sh -u https://target.com \
+  --payload-path 403_path_payloads.txt \
+  --payload-header 403_header_payloads.txt \
+  --stealth --ua-rotate --delay 0.4
 
-# Run with proxy
-./evil_403.sh -u https://target.com -p http://127.0.0.1:8080
-
-# Full arsenal run (payloads + scope + stealth tuning)
-./evil_403.sh -u https://target.com -p http://127.0.0.1:8080 \
-  --payloads-url ./payloads/403_master_payloads.txt \
-  --payloads-header ./payloads/403_header_payloads.txt \
-  --scope admin,login,dashboard,api,internal \
-  --threads-recon 15 --threads-fuzz 8 --rate 0.2 --timeout 10
 ```
 
 ## 📂 Folder Structure
 ```evil-403/
  ├── evil_403.sh              # main automation wrapper
  ├── payloads/
- │    ├── 403_url_payloads.txt
- │    └── 403_header_payloads.txt
+ │    ├── 403_header_payloads.txt
+ │    └── 403_path_payloads.txt
 ```
 
-## Outputs 
-**saved in evil403_out/**
-- Recon results → recon/
-- Bypass attempts → bypass/
-- Validation successes → validation/success.txt
-- Evidence → evidence/headers_*.txt, responses/body_*.html
+
 
 
 ## 🔒 Disclaimer
